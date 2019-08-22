@@ -57,20 +57,20 @@ void reqcmd() {
 			float newpos;
 			try {
 				newpos = to!float(readln().chop());
+				writePos(XPOS_OFFSET, newpos);
 			} catch (ConvException ex) {
 				writeln("Invalid input!");
 			}
-			writePos(XPOS_OFFSET, newpos);
 		break;
 		case "set.ypos":
 			write("Enter new Y position: ");
 			float newpos;
 			try {
 				newpos = to!float(readln().chop());
+				writePos(YPOS_OFFSET, newpos);
 			} catch (ConvException ex) {
 				writeln("Invalid input!");
 			}
-			writePos(YPOS_OFFSET, newpos);
 		break;
 		case "?":
 		case "help":
