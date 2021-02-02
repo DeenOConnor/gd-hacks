@@ -1,7 +1,8 @@
 module GDHacks;
 
 // By Deen O'Connor
-// Thanks to Sonic for help
+
+pragma(lib, "user32");
 
 import std.stdio;
 import core.sys.windows.windows;
@@ -14,166 +15,203 @@ import std.conv;
 GameProcess gameProc;
 bool exit = false;
 
-const uint BASE_MAGIC = 0x003222D0;
-const uint NICKNAME_OFFSET = 0x198;
-const uint LEVELID_OFFSET = 0x2A0;
-const uint UBASE_OFFSET = 0x164; // Offset used for position and percentage
-const uint GPOS_OFFSET = 0x224, XPOS_OFFSET = 0x67C, YPOS_OFFSET = 0x680; // GPOS is for getting X and Y
-const uint PERC_OFFSET1 = 0x3C0, PERC_OFFSET2 = 0x12C; // 2 offsets for percentage
+// Base offset to start looking for data
+const uint off_magic = 0x003222D0;
+const uint off_nickname = 0x198;
+const uint off_levelid = 0x2A0;
+
+// Offset used for position, percentage and check if a level is played
+const uint off_ubase = 0x164;
+
+// First is most likely a pointer to a structure, other two are for getting X and Y
+const uint off_position = 0x224, off_xpos = 0x67C, off_ypos = 0x680; 
+
+// 2 offsets for percentage
+const uint off_perc1 = 0x3C0, off_perc2 = 0x12C; 
+
+// It's easier to have this assigned as a global variable
+ubyte* ptr_magicStart = null;
 
 void main(string[] args) {
-	connectToProcess();
-    writeln("Welcome to Deen's GD Hacks\nType 'help' or '?' to get available commands");
-	reqcmd();
-}
+    string[] modules = ["GeometryDash.exe"];
+    gameProc = new GameProcess("GeometryDash.exe", "Geometry Dash", modules);
+    gameProc.runOnProcess();
 
-void connectToProcess() {
-	string[] modules = ["GeometryDash.exe", "libcocos2d.dll", "libcurl.dll"];
-	gameProc = new GameProcess("GeometryDash.exe", "Geometry Dash", modules);
-	gameProc.runOnProcess();
+    ReadProcessMemory(gameProc.processHandle, gameProc.processModules["GeometryDash.exe"] + off_magic, cast(void*)&ptr_magicStart, (ubyte*).sizeof, null);
+    if (ptr_magicStart is null) {
+        writeln("Something went wrong, try restarting the program.");
+        readln();
+        return;
+    }
+
+    writeln("Welcome to Deen's GD Hacks\nType 'help' or '?' to get available commands");
+    reqcmd();
 }
 
 void reqcmd() {
-	write("> ");
-	string command = readln().chop();
-	switch (command) {
-		case "get.nickname":
-			readNickname();
-		break;
-		case "get.levelid":
-			readLevelid();
-		break;
-		case "get.xpos":
-			readPos(XPOS_OFFSET);
-		break;
-		case "get.ypos":
-			readPos(YPOS_OFFSET);
-		break;
-		case "get.percentage":
-			readPercent();
-		break;
-		case "set.xpos":
-			write("Enter new X position: ");
-			float newpos;
-			try {
-				newpos = to!float(readln().chop());
-				writePos(XPOS_OFFSET, newpos);
-			} catch (ConvException ex) {
-				writeln("Invalid input!");
-			}
-		break;
-		case "set.ypos":
-			write("Enter new Y position: ");
-			float newpos;
-			try {
-				newpos = to!float(readln().chop());
-				writePos(YPOS_OFFSET, newpos);
-			} catch (ConvException ex) {
-				writeln("Invalid input!");
-			}
-		break;
-		case "?":
-		case "help":
-			printHelp();
-		break;
-		case "exit":
-			exit = true;
-		break;
-		default:
-			writeln("Command not recognized!");
-		break;
-	}
-	if (!exit) reqcmd();
+    while (!exit) {
+        write("> ");
+        string command = readln().chop();
+
+        switch (command) {
+            case "get.nickname":
+                readNickname();
+            break;
+            case "get.levelid":
+                readLevelid();
+            break;
+            case "get.xpos":
+                readPos(off_xpos);
+            break;
+            case "get.ypos":
+                readPos(off_ypos);
+            break;
+            case "get.percentage":
+                readPercent();
+            break;
+            case "set.xpos":
+                write("Enter new X position: ");
+                float newpos;
+                try {
+                    newpos = to!float(readln().chop());
+                    writePos(off_xpos, newpos);
+                } catch (ConvException ex) {
+                    writeln("Invalid input!");
+                }
+            break;
+            case "set.ypos":
+                write("Enter new Y position: ");
+                float newpos;
+                try {
+                    newpos = to!float(readln().chop());
+                    writePos(off_ypos, newpos);
+                } catch (ConvException ex) {
+                    writeln("Invalid input!");
+                }
+            break;
+            case "?":
+                goto case "help";
+            case "help":
+                printHelp();
+            break;
+            case "exit":
+                exit = true;
+            break;
+            default:
+                writeln("Command not recognized!");
+            break;
+        }
+    }
 }
 
 void printHelp() {
-	writeln(
-"get.nickname  ----  print current nickname in game
-get.levelid  ----  print current level id (-1 if not playing)
-get.xpos  ----  print current X player position (-1 if not playing)
-get.ypos  ----  print current Y player position (-1 if not playing)
-get.percentage  ----  print current percentage on a level (-1 if not playing)
-set.xpos  ----  set current X player position (does nothing if not playing)
-set.ypos  ----  set current Y player position (does nothing if not playing)
-help, ?  ----  print this help
-exit  ----  exit the program");
+    writeln(
+            "get.nickname  ----  print current nickname in game
+            get.levelid  ----  print current level id (or a note if not playing)
+            get.xpos  ----  print current X player position (or a note if not playing)
+            get.ypos  ----  print current Y player position (or a note if not playing)
+            get.percentage  ----  print current percentage (takes the value from GUI)
+            set.xpos  ----  set current X player position (does nothing if not playing)
+            set.ypos  ----  set current Y player position (does nothing if not playing)
+            help, ?  ----  print this help
+            exit  ----  exit the program");
 }
 
+// --------------
 // READING VALUES
+// --------------
 
 void readNickname() {
-	uint pointerValue;
-	pointerValue = getPointerValue(gameProc.processModules["GeometryDash.exe"], BASE_MAGIC);
-	printMemString(pointerValue + NICKNAME_OFFSET);
+    //off_magic -> off_nickname
+    printMemString(ptr_magicStart + off_nickname);
 }
 
 void readLevelid() {
-	uint pointerValue, levelid;
-	pointerValue = getPointerValue(gameProc.processModules["GeometryDash.exe"], BASE_MAGIC);
-	if (getPointerValue(pointerValue, UBASE_OFFSET) == 0) {
-		writeln(-1);
-		return;
-	}
-	ReadProcessMemory(gameProc.processHandle, cast(PVOID)(pointerValue + LEVELID_OFFSET), &levelid, uint.sizeof, null);
-	writeln(levelid);
+    //off_magic -> off_levelid
+    uint levelid, ubaseCheck;
+    ReadProcessMemory(gameProc.processHandle, ptr_magicStart + off_ubase, &ubaseCheck, uint.sizeof, null);
+    if (ubaseCheck == 0) {
+        // 0 at ubase means we are not currently on a level
+        writeln("Not on a level");
+        return;
+    }
+    ReadProcessMemory(gameProc.processHandle, ptr_magicStart + off_levelid, &levelid, uint.sizeof, null);
+    writeln(levelid);
 }
 
-void readPos(uint oof) { // Using specific offset because X and Y only differ by 4 bytes
-	uint ptr0, ptr1, ptr2;
-	ptr0 = getPointerValue(gameProc.processModules["GeometryDash.exe"], BASE_MAGIC);
-	ptr1 = getPointerValue(ptr0, UBASE_OFFSET);
-	if (ptr1 == 0) {
-		writeln(-1);
-		return;
-	}
-	ptr2 = getPointerValue(ptr1, GPOS_OFFSET);
-	
-	float position = -1;
-	ReadProcessMemory(gameProc.processHandle, cast(PVOID)(ptr2 + oof), &position, uint.sizeof, null);
-	writeln(position);
+void readPos(uint oof) { // Passing offset as argument because X and Y are next to each other
+    //off_magic -> off_ubase -> off_position -> off_xpos or off_ypos
+    ubyte* ptr_ubase, ptr_position;
+    ReadProcessMemory(gameProc.processHandle, ptr_magicStart + off_ubase, &ptr_ubase, (void*).sizeof, null);
+    if (ptr_ubase is null) {
+        writeln("Not on a level");
+        return;
+    }
+
+    ReadProcessMemory(gameProc.processHandle, ptr_ubase + off_position, &ptr_position, (void*).sizeof, null);
+    if (ptr_position is null) {
+        writeln("Can't get to position address");
+        return;
+    }
+
+    float position = -1;
+    ReadProcessMemory(gameProc.processHandle, ptr_position + oof, &position, float.sizeof, null);
+    writeln(position);
 }
 
 void readPercent() {
-	uint ptr0, ptr1, ptr2; //BASE_MAGIC -> UBASE_OFFSET -> PERC_OFFSETs 1 and 2
-	ptr0 = getPointerValue(gameProc.processModules["GeometryDash.exe"], BASE_MAGIC);
-	ptr1 = getPointerValue(ptr0, UBASE_OFFSET);
-	if (ptr1 == 0) {
-		writeln(-1);
-		return;
-	}
-	ptr2 = getPointerValue(ptr1, PERC_OFFSET1);
-	printMemString(ptr2 + PERC_OFFSET2);
+    //off_magic -> off_ubase -> off_perc1 -> off_perc2
+    ubyte* ptr_ubase, ptr_percentage;
+    ReadProcessMemory(gameProc.processHandle, ptr_magicStart + off_ubase, &ptr_ubase, (void*).sizeof, null);
+    if (ptr_ubase is null) {
+        writeln("Not on a level");
+        return;
+    }
+
+    ReadProcessMemory(gameProc.processHandle, ptr_ubase + off_perc1, &ptr_percentage, (void*).sizeof, null);
+    if (ptr_percentage is null) {
+        writeln("Can't get to percentage address");
+        return;
+    }
+
+    printMemString(ptr_percentage + off_perc2);
 }
 
+// --------------
 // WRITING VALUES
+// --------------
 
 void writePos(uint oof, float newpos) {
-	uint ptr0, ptr1, ptr2;
-	ptr0 = getPointerValue(gameProc.processModules["GeometryDash.exe"], BASE_MAGIC);
-	ptr1 = getPointerValue(ptr0, UBASE_OFFSET);
-	if (ptr1 == 0) {
-		writeln("Not on a level");
-		return;
-	}
-	ptr2 = getPointerValue(ptr1, GPOS_OFFSET);
+    //off_magic -> off_ubase -> off_position -> off_xpos or off_ypos
+    ubyte* ptr_ubase, ptr_position;
+    ReadProcessMemory(gameProc.processHandle, ptr_magicStart + off_ubase, &ptr_ubase, (void*).sizeof, null);
+    if (ptr_ubase is null) {
+        writeln("Not on a level");
+        return;
+    }
 
-	WriteProcessMemory(gameProc.processHandle, cast(PVOID)(ptr2 + oof), &newpos, float.sizeof, null);
+    ReadProcessMemory(gameProc.processHandle, ptr_ubase + off_position, &ptr_position, (void*).sizeof, null);
+    if (ptr_position is null) {
+        writeln("Can't get to position address");
+        return;
+    }
+
+    WriteProcessMemory(gameProc.processHandle, ptr_position + oof, &newpos, float.sizeof, null);
 }
 
+// ----------------
 // HELPER FUNCTIONS
+// ----------------
 
-uint getPointerValue(uint base, uint offset) { // Very useful thing
-	uint pointerValue = 0;
-	ReadProcessMemory(gameProc.processHandle, cast(PVOID)(base + offset), &pointerValue, uint.sizeof, null); // Reading pointer value
-	return pointerValue;
-}
-
-void printMemString(uint address) {
-	char[15] buf; // Typically there are max 15 chars. Will be (probably) updated later
-	ReadProcessMemory(gameProc.processHandle, cast(PVOID) address, &buf, char.sizeof*15, null); // Reading the nickname itself
-	string nickname = cast(string) buf;
-	int index = nickname.indexOf(0x00);
-	if (index != -1) 
-		nickname = nickname[0..index]; // Getting rid of garbage bytes that sometimes make it to this memory region
-	writeln(nickname);
+void printMemString(void* address) {
+    // Typically there are max 15 chars. Will be (probably) updated later
+    char[15] buf; 
+    ReadProcessMemory(gameProc.processHandle, address, &buf, char.sizeof*15, null);
+    string nickname = cast(string) buf;
+    int index = nickname.indexOf(0x00);
+    if (index != -1) {
+         // Getting rid of garbage bytes that sometimes make it to this memory region
+        nickname = nickname[0..index];
+    }
+    writeln(nickname);
 }
